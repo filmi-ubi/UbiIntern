@@ -4,9 +4,7 @@
 
 ## Quick Setup
 1. Clone repo
-2. Run `./setup.sh`
-3. Follow deployment steps
-4. Demo at 3:45 PM
+   
 
 ## Structure
 - `/database` - PostgreSQL schema
