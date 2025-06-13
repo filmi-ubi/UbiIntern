@@ -3,8 +3,17 @@ from pydantic import BaseModel
 from typing import List
 from auth import create_access_token, verify_token, authenticate_user
 from google_drive import drive_manager
+from fastapi.middleware.cors import CORSMiddleware
+
 
 app = FastAPI(title="UbiIntern Automation Platform")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # React app URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class LoginRequest(BaseModel):
     email: str
@@ -82,7 +91,7 @@ def create_customer(customer: CustomerCreate, current_user: dict = Depends(verif
             "folder_created": folder_result["success"],
             "folder_id": folder_result.get("folder_id"),
             "folder_url": folder_result.get("folder_url"),
-            "subfolders_created": folder_result.get("subfolders", [])
+            "subfolders_created": folder_result.get("subfolders_created", [])
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creating customer: {str(e)}")
