@@ -2,7 +2,7 @@
 
 *Business automation platform deployment for hack day competition.*
 
-## Quick Setup
+## Quick Setup (when finished)
 1. Clone repo
 2. Run `./setup.sh`
 3. Follow deployment steps
