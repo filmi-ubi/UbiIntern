@@ -12,7 +12,7 @@ function App() {
     legal_name: '',
     display_name: '',
     organization_code: '',
-    email_domains: [''], // Start with empty string, will be filled by user
+    email_domains: ['example.com'], // Fixed: provide default domain
     primary_contact_email: ''
   });
   const [lastAutomation, setLastAutomation] = useState(null);
@@ -100,17 +100,7 @@ function App() {
 
   const handleCustomerSubmit = async (e) => {
     e.preventDefault();
-    
-    // Prepare the data in the exact format the backend expects
-    const customerData = {
-      legal_name: newCustomer.legal_name.trim(),
-      display_name: newCustomer.display_name.trim(),
-      organization_code: newCustomer.organization_code.trim().toUpperCase(),
-      email_domains: [newCustomer.email_domains[0].trim()], // Ensure it's properly formatted
-      primary_contact_email: newCustomer.primary_contact_email.trim()
-    };
-    
-    console.log('Submitting customer:', customerData); // Debug log
+    console.log('Submitting customer:', newCustomer); // Debug log
     
     try {
       const response = await fetch('http://localhost:8000/api/customers', {
@@ -119,32 +109,26 @@ function App() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(customerData)
+        body: JSON.stringify(newCustomer)
       });
       
       console.log('Response status:', response.status); // Debug log
       const result = await response.json();
       console.log('Response data:', result); // Debug log
       
-      if (response.ok && result.success) {
+      if (result.success) {
         setLastAutomation(result);
         loadCustomers(token);
         setNewCustomer({
           legal_name: '',
           display_name: '',
           organization_code: '',
-          email_domains: [''],
+          email_domains: ['example.com'],
           primary_contact_email: ''
         });
         setActiveView('automation');
       } else {
-        // Show the actual validation errors
-        if (result.detail && Array.isArray(result.detail)) {
-          const errors = result.detail.map(err => `${err.loc?.join('.')}: ${err.msg}`).join('\n');
-          alert('Validation errors:\n' + errors);
-        } else {
-          alert('Error creating customer: ' + JSON.stringify(result));
-        }
+        alert('Error creating customer: ' + JSON.stringify(result));
       }
     } catch (err) {
       console.error('Submit error:', err);
