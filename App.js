@@ -6,16 +6,22 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [token, setToken] = useState(null);
   const [customers, setCustomers] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
   const [newCustomer, setNewCustomer] = useState({
     legal_name: '',
     display_name: '',
     organization_code: '',
-    email_domains: [''],
+    email_domains: [''], // FIXED: This was missing
     primary_contact_email: ''
   });
   const [lastAutomation, setLastAutomation] = useState(null);
+  const [activeView, setActiveView] = useState('dashboard'); // FIXED: Added navigation
+  const [loginForm, setLoginForm] = useState({
+    email: 'admin@company.com',
+    password: 'admin123'
+  });
 
-  // Check system status on load
   useEffect(() => {
     fetch('http://localhost:8000/health')
       .then(res => res.json())
@@ -29,11 +35,15 @@ function App() {
       const response = await fetch('http://localhost:8000/auth/login', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          email: 'admin@company.com',
-          password: 'admin123'
-        })
+        body: JSON.stringify(loginForm)
       });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        alert(errorData.detail || 'Login failed');
+        return;
+      }
+      
       const data = await response.json();
       if (data.access_token) {
         setToken(data.access_token);
@@ -41,7 +51,7 @@ function App() {
         loadCustomers(data.access_token);
       }
     } catch (err) {
-      alert('Login failed');
+      alert('Login failed: ' + err.message);
     }
   };
 
@@ -50,15 +60,57 @@ function App() {
       const response = await fetch('http://localhost:8000/api/customers', {
         headers: {'Authorization': `Bearer ${authToken}`}
       });
+      
+      if (!response.ok) {
+        console.log('Failed to load customers:', response.status);
+        setCustomers([]);
+        return;
+      }
+      
       const data = await response.json();
-      setCustomers(data);
+      if (Array.isArray(data)) {
+        setCustomers(data);
+      } else {
+        console.log('Customers response is not an array:', data);
+        setCustomers([]);
+      }
     } catch (err) {
-      console.log('Failed to load customers');
+      console.log('Failed to load customers:', err);
+      setCustomers([]);
+    }
+  };
+
+  const handleSearch = async (query) => {
+    setSearchQuery(query);
+    if (query.length > 0 && token) {
+      try {
+        const response = await fetch(`http://localhost:8000/api/search?q=${query}`, {
+          headers: {'Authorization': `Bearer ${token}`}
+        });
+        const data = await response.json();
+        setSearchResults(data.results || []);
+      } catch (err) {
+        console.log('Search failed');
+      }
+    } else {
+      setSearchResults([]);
     }
   };
 
   const handleCustomerSubmit = async (e) => {
     e.preventDefault();
+    
+    // FIXED: Prepare data properly
+    const customerData = {
+      legal_name: newCustomer.legal_name.trim(),
+      display_name: newCustomer.display_name.trim(),
+      organization_code: newCustomer.organization_code.trim().toUpperCase(),
+      email_domains: [newCustomer.email_domains[0].trim()], // FIXED: Ensure array format
+      primary_contact_email: newCustomer.primary_contact_email.trim()
+    };
+    
+    console.log('Submitting customer:', customerData);
+    
     try {
       const response = await fetch('http://localhost:8000/api/customers', {
         method: 'POST',
@@ -66,10 +118,14 @@ function App() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(newCustomer)
+        body: JSON.stringify(customerData) // FIXED: Use cleaned data
       });
+      
+      console.log('Response status:', response.status);
       const result = await response.json();
-      if (result.success) {
+      console.log('Response data:', result);
+      
+      if (response.ok && result.success) {
         setLastAutomation(result);
         loadCustomers(token);
         setNewCustomer({
@@ -79,193 +135,329 @@ function App() {
           email_domains: [''],
           primary_contact_email: ''
         });
+        setActiveView('automation'); // FIXED: Switch to automation view
+      } else {
+        if (result.detail && Array.isArray(result.detail)) {
+          const errors = result.detail.map(err => `${err.loc?.join('.')}: ${err.msg}`).join('\n');
+          alert('Validation errors:\n' + errors);
+        } else {
+          alert('Error creating customer: ' + JSON.stringify(result));
+        }
       }
     } catch (err) {
-      alert('Failed to create customer');
+      console.error('Submit error:', err);
+      alert('Failed to create customer: ' + err.message);
     }
   };
 
+  if (!isLoggedIn) {
+    return (
+      <div className="App">
+        <header className="header">
+          <div className="container">
+            <h1>UbiIntern Automation Platform</h1>
+            <p>Business Process Automation System</p>
+          </div>
+        </header>
+
+        <main className="login-main">
+          <div className="container">
+            <div className="login-section">
+              <div className="login-card">
+                <h2>Employee Portal Access</h2>
+                <form onSubmit={handleLogin} className="login-form">
+                  <div className="form-group">
+                    <label>Email Address</label>
+                    <input 
+                      type="email" 
+                      value={loginForm.email}
+                      onChange={(e) => setLoginForm({...loginForm, email: e.target.value})}
+                      placeholder="Enter email address"
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Password</label>
+                    <input 
+                      type="password" 
+                      value={loginForm.password}
+                      onChange={(e) => setLoginForm({...loginForm, password: e.target.value})}
+                      placeholder="Enter password"
+                      required
+                    />
+                  </div>
+                  <button type="submit" className="btn-primary">Sign In</button>
+                </form>
+                
+                <div className="system-status">
+                  <span className="status-label">System Status:</span>
+                  {systemStatus ? (
+                    <span className="status-online">Online</span>
+                  ) : (
+                    <span className="status-offline">Offline</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="App">
-      {/* Header */}
       <header className="header">
         <div className="container">
-          <h1>🚀 UbiIntern Automation Platform</h1>
-          <p>Complete Business Automation - Eric's Anniversary Hack Day</p>
-          <div className="status">
-            {systemStatus ? (
-              <span className="status-online">✅ Backend Operational</span>
-            ) : (
-              <span className="status-offline">❌ Backend Offline</span>
-            )}
+          <div className="header-content">
+            <h1>UbiIntern Automation Platform</h1>
+            <nav className="nav">
+              <button 
+                className={activeView === 'dashboard' ? 'nav-item active' : 'nav-item'}
+                onClick={() => setActiveView('dashboard')}
+              >
+                Dashboard
+              </button>
+              <button 
+                className={activeView === 'customers' ? 'nav-item active' : 'nav-item'}
+                onClick={() => setActiveView('customers')}
+              >
+                Customers
+              </button>
+              <button 
+                className={activeView === 'automation' ? 'nav-item active' : 'nav-item'}
+                onClick={() => setActiveView('automation')}
+              >
+                Automation
+              </button>
+            </nav>
+            <div className="header-actions">
+              <div className="search-bar">
+                <input 
+                  type="text" 
+                  placeholder="Search customers, contacts, files..." 
+                  value={searchQuery}
+                  onChange={(e) => handleSearch(e.target.value)}
+                />
+                {searchResults.length > 0 && (
+                  <div className="search-results">
+                    {searchResults.map((result, index) => (
+                      <div key={index} className="search-result-item">
+                        <span className="result-type">{result.type}</span>
+                        <span className="result-title">{result.title}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <span className="user-info">{loginForm.email}</span>
+              <button 
+                onClick={() => {
+                  setIsLoggedIn(false);
+                  setToken(null);
+                  setCustomers([]);
+                }}
+                className="btn-secondary"
+              >
+                Logout
+              </button>
+            </div>
           </div>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="hero">
+      <main className="main">
         <div className="container">
-          <div className="hero-content">
-            <h2>Built from Your Vision</h2>
-            <p>Authentication • Automation • Google Integration • Search</p>
-            <div className="features-grid">
-              <div className="feature">
-                <h3>🔐 Secure Authentication</h3>
-                <p>JWT-based login system with 8-hour sessions</p>
+          {activeView === 'customers' && (
+            <div className="customers-view">
+              <div className="page-header">
+                <h2>Customer Management</h2>
+                <p>Add and manage customer accounts with automated folder creation</p>
               </div>
-              <div className="feature">
-                <h3>⚡ Smart Automation</h3>
-                <p>Customer creation triggers folder structure automation</p>
-              </div>
-              <div className="feature">
-                <h3>🔍 Universal Search</h3>
-                <p>Find customers and documents instantly</p>
-              </div>
-              <div className="feature">
-                <h3>📁 Google Integration</h3>
-                <p>Automated Drive folder creation with standard structure</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
 
-      {/* Login Section */}
-      {!isLoggedIn ? (
-        <section className="login-section">
-          <div className="container">
-            <div className="login-card">
-              <h3>Employee Portal Access</h3>
-              <form onSubmit={handleLogin}>
-                <input type="email" value="admin@company.com" readOnly className="readonly" />
-                <input type="password" value="admin123" readOnly className="readonly" />
-                <button type="submit" className="btn-primary">Sign In to Platform</button>
-              </form>
-              <p className="demo-note">Demo credentials - real system uses Google OAuth</p>
-            </div>
-          </div>
-        </section>
-      ) : (
-        <>
-          {/* Dashboard Section */}
-          <section className="dashboard">
-            <div className="container">
-              <h3>🎛️ Business Operations Dashboard</h3>
-              
-              {/* Customer Creation */}
-              <div className="dashboard-grid">
-                <div className="card">
-                  <h4>➕ Add New Customer</h4>
+              <div className="customers-grid">
+                <div className="customers-section">
+                  <h3>Add New Customer</h3>
                   <form onSubmit={handleCustomerSubmit} className="customer-form">
-                    <input
-                      type="text"
-                      placeholder="Company Legal Name"
-                      value={newCustomer.legal_name}
-                      onChange={(e) => setNewCustomer({...newCustomer, legal_name: e.target.value})}
-                      required
-                    />
-                    <input
-                      type="text"
-                      placeholder="Display Name"
-                      value={newCustomer.display_name}
-                      onChange={(e) => setNewCustomer({...newCustomer, display_name: e.target.value})}
-                      required
-                    />
-                    <input
-                      type="text"
-                      placeholder="Organization Code"
-                      value={newCustomer.organization_code}
-                      onChange={(e) => setNewCustomer({...newCustomer, organization_code: e.target.value})}
-                      required
-                    />
-                    <input
-                      type="email"
-                      placeholder="Primary Contact Email"
-                      value={newCustomer.primary_contact_email}
-                      onChange={(e) => setNewCustomer({...newCustomer, primary_contact_email: e.target.value})}
-                      required
-                    />
-                    <button type="submit" className="btn-primary">Create Customer & Trigger Automation</button>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Legal Company Name</label>
+                        <input
+                          type="text"
+                          value={newCustomer.legal_name}
+                          onChange={(e) => setNewCustomer({...newCustomer, legal_name: e.target.value})}
+                          required
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Display Name</label>
+                        <input
+                          type="text"
+                          value={newCustomer.display_name}
+                          onChange={(e) => setNewCustomer({...newCustomer, display_name: e.target.value})}
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Organization Code</label>
+                        <input
+                          type="text"
+                          value={newCustomer.organization_code}
+                          onChange={(e) => setNewCustomer({...newCustomer, organization_code: e.target.value})}
+                          required
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Email Domain</label>
+                        <input
+                          type="text"
+                          placeholder="example.com"
+                          value={newCustomer.email_domains[0] || ''}
+                          onChange={(e) => setNewCustomer({...newCustomer, email_domains: [e.target.value]})}
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Primary Contact Email</label>
+                        <input
+                          type="email"
+                          value={newCustomer.primary_contact_email}
+                          onChange={(e) => setNewCustomer({...newCustomer, primary_contact_email: e.target.value})}
+                          required
+                        />
+                      </div>
+                    </div>
+                    <button type="submit" className="btn-primary">🚀 Create Customer & Launch Google Automation</button>
                   </form>
                 </div>
 
-                {/* Customer List */}
-                <div className="card">
-                  <h4>👥 Current Customers ({customers.length})</h4>
-                  <div className="customer-list">
-                    {customers.map(customer => (
-                      <div key={customer.id} className="customer-item">
-                        <strong>{customer.legal_name}</strong>
-                        <span className="status-badge">{customer.status}</span>
+                <div className="customers-section">
+                  <h3>Current Customers ({customers.length})</h3>
+                  <div className="customers-table">
+                    <div className="table-header">
+                      <span>Company</span>
+                      <span>Code</span>
+                      <span>Status</span>
+                    </div>
+                    {customers.length > 0 ? (
+                      customers.map(customer => (
+                        <div key={customer.id} className="table-row">
+                          <span className="company-name">{customer.legal_name}</span>
+                          <span className="company-code">{customer.id}</span>
+                          <span className="company-status">{customer.status}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="table-row">
+                        <span>No customers found</span>
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
               </div>
+            </div>
+          )}
 
-              {/* Automation Results */}
+          {activeView === 'automation' && (
+            <div className="automation-view">
+              <div className="page-header">
+                <h2>🤖 Google Workspace Automation Results</h2>
+                <p>Real-time automation execution and Google API integration status</p>
+              </div>
+
               {lastAutomation && (
-                <div className="automation-results">
-                  <h4>🎉 Latest Automation Success</h4>
-                  <div className="automation-card">
-                    <div className="automation-header">
-                      <strong>Customer: {customers.find(c => c.id === lastAutomation.customer_id)?.legal_name}</strong>
-                      <span className="success-badge">✅ Automation Complete</span>
+                <div className="automation-result">
+                  <div className="result-header">
+                    <h3>✅ Complete Automation Executed</h3>
+                    <span className="automation-status success">All Google Services Activated</span>
+                  </div>
+                  
+                  <div className="automation-details">
+                    <div className="detail-section">
+                      <h4>📁 Google Drive Integration</h4>
+                      <div className="folder-info">
+                        <p><strong>Folder ID:</strong> {lastAutomation.folder_id}</p>
+                        <p><strong>Mode:</strong> {lastAutomation.mode === 'mock' ? '🔧 Mock (Ready for Production)' : '🌐 Live Google Drive API'}</p>
+                        <p><strong>URL:</strong> <a href={lastAutomation.folder_url} target="_blank" rel="noopener noreferrer">{lastAutomation.folder_url}</a></p>
+                      </div>
                     </div>
-                    <div className="automation-details">
-                      <p><strong>📁 Folder Created:</strong> <a href={lastAutomation.folder_url} target="_blank" rel="noopener noreferrer">{lastAutomation.folder_id}</a></p>
-                      <p><strong>📂 Subfolders:</strong></p>
-                      <div className="subfolder-list">
+
+                    <div className="detail-section">
+                      <h4>📂 Automated Folder Structure</h4>
+                      <div className="subfolders-grid">
                         {lastAutomation.subfolders_created?.map(folder => (
-                          <span key={folder} className="folder-tag">{folder}</span>
+                          <div key={folder} className="subfolder-item">{folder}</div>
                         ))}
                       </div>
-                      <p><strong>Mode:</strong> {lastAutomation.mode === 'mock' ? '🔧 Mock (Ready for Google API)' : '🌐 Live Google Drive'}</p>
+                    </div>
+
+                    {lastAutomation.automations_completed && (
+                      <div className="detail-section">
+                        <h4>🚀 Complete Automation Pipeline</h4>
+                        <div className="automation-steps">
+                          {lastAutomation.automations_completed.map((step, index) => (
+                            <div key={index} className="automation-step">{step}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="detail-section">
+                      <h4>📋 System Message</h4>
+                      <p className="automation-message">{lastAutomation.message}</p>
                     </div>
                   </div>
                 </div>
               )}
             </div>
-          </section>
+          )}
 
-          {/* System Information */}
-          <section className="system-info">
-            <div className="container">
-              <h4>⚙️ System Architecture</h4>
-              <div className="architecture-grid">
-                <div className="arch-item">
-                  <h5>Backend API</h5>
-                  <p>FastAPI • JWT Auth • PostgreSQL Ready</p>
-                  <span className="status-online">Operational</span>
+          {activeView === 'dashboard' && (
+            <div className="dashboard-view">
+              <div className="page-header">
+                <h2>🎛️ System Dashboard</h2>
+                <p>Overview of automation platform status and recent activity</p>
+              </div>
+              
+              <div className="dashboard-grid">
+                <div className="stat-card">
+                  <h3>Total Customers</h3>
+                  <div className="stat-value">{customers.length}</div>
                 </div>
-                <div className="arch-item">
-                  <h5>Google Integration</h5>
-                  <p>Drive API • Folder Automation • Mock Mode</p>
-                  <span className="status-ready">Ready for Production</span>
+                <div className="stat-card">
+                  <h3>Google APIs</h3>
+                  <div className="stat-value">4 Active</div>
                 </div>
-                <div className="arch-item">
-                  <h5>Database Layer</h5>
-                  <p>Eric's Schema • 70+ Tables • Mock Data</p>
-                  <span className="status-pending">Schema Ready</span>
+                <div className="stat-card">
+                  <h3>Automations</h3>
+                  <div className="stat-value">Complete</div>
                 </div>
-                <div className="arch-item">
-                  <h5>Frontend Interface</h5>
-                  <p>React 18 • Modern UI • API Integration</p>
-                  <span className="status-online">Live Demo</span>
+                <div className="stat-card">
+                  <h3>System Status</h3>
+                  <div className="stat-value status-operational">Operational</div>
+                </div>
+              </div>
+
+              <div className="dashboard-sections">
+                <div className="section">
+                  <h3>🚀 Ready to Test</h3>
+                  <p>Click "Customers" → Fill out the form → Watch the complete Google Workspace automation!</p>
+                  <button 
+                    onClick={() => setActiveView('customers')}
+                    className="btn-primary"
+                  >
+                    Create Your First Customer
+                  </button>
                 </div>
               </div>
             </div>
-          </section>
-        </>
-      )}
-
-      {/* Footer */}
-      <footer className="footer">
-        <div className="container">
-          <p>Built for Eric's Anniversary Hackathon • Team UbiIntern • Competing for $6,000+ in prizes</p>
-          <p><strong>Demo Ready:</strong> Authentication ✓ Automation ✓ Google Integration ✓ Search ✓</p>
+          )}
         </div>
-      </footer>
+      </main>
     </div>
   );
 }

@@ -5,18 +5,22 @@ function App() {
   const [systemStatus, setSystemStatus] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [token, setToken] = useState(null);
-  const [customers, setCustomers] = useState([]);
+  const [customers, setCustomers] = useState([]); // Always initialize as array
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [newCustomer, setNewCustomer] = useState({
     legal_name: '',
     display_name: '',
     organization_code: '',
-    email_domains: [''],
+    email_domains: [''], // Start with empty string, will be filled by user
     primary_contact_email: ''
   });
   const [lastAutomation, setLastAutomation] = useState(null);
   const [activeView, setActiveView] = useState('dashboard');
+  const [loginForm, setLoginForm] = useState({
+    email: 'admin@company.com',
+    password: 'admin123'
+  });
 
   useEffect(() => {
     fetch('http://localhost:8000/health')
@@ -31,11 +35,15 @@ function App() {
       const response = await fetch('http://localhost:8000/auth/login', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          email: 'admin@company.com',
-          password: 'admin123'
-        })
+        body: JSON.stringify(loginForm)
       });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        alert(errorData.detail || 'Login failed');
+        return;
+      }
+      
       const data = await response.json();
       if (data.access_token) {
         setToken(data.access_token);
@@ -43,7 +51,7 @@ function App() {
         loadCustomers(data.access_token);
       }
     } catch (err) {
-      alert('Login failed');
+      alert('Login failed: ' + err.message);
     }
   };
 
@@ -52,10 +60,24 @@ function App() {
       const response = await fetch('http://localhost:8000/api/customers', {
         headers: {'Authorization': `Bearer ${authToken}`}
       });
+      
+      if (!response.ok) {
+        console.log('Failed to load customers:', response.status);
+        setCustomers([]); // Set empty array on error
+        return;
+      }
+      
       const data = await response.json();
-      setCustomers(data);
+      // Ensure data is an array
+      if (Array.isArray(data)) {
+        setCustomers(data);
+      } else {
+        console.log('Customers response is not an array:', data);
+        setCustomers([]);
+      }
     } catch (err) {
-      console.log('Failed to load customers');
+      console.log('Failed to load customers:', err);
+      setCustomers([]); // Set empty array on error
     }
   };
 
@@ -78,6 +100,18 @@ function App() {
 
   const handleCustomerSubmit = async (e) => {
     e.preventDefault();
+    
+    // Prepare the data in the exact format the backend expects
+    const customerData = {
+      legal_name: newCustomer.legal_name.trim(),
+      display_name: newCustomer.display_name.trim(),
+      organization_code: newCustomer.organization_code.trim().toUpperCase(),
+      email_domains: [newCustomer.email_domains[0].trim()], // Ensure it's properly formatted
+      primary_contact_email: newCustomer.primary_contact_email.trim()
+    };
+    
+    console.log('Submitting customer:', customerData); // Debug log
+    
     try {
       const response = await fetch('http://localhost:8000/api/customers', {
         method: 'POST',
@@ -85,10 +119,14 @@ function App() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(newCustomer)
+        body: JSON.stringify(customerData)
       });
+      
+      console.log('Response status:', response.status); // Debug log
       const result = await response.json();
-      if (result.success) {
+      console.log('Response data:', result); // Debug log
+      
+      if (response.ok && result.success) {
         setLastAutomation(result);
         loadCustomers(token);
         setNewCustomer({
@@ -99,9 +137,18 @@ function App() {
           primary_contact_email: ''
         });
         setActiveView('automation');
+      } else {
+        // Show the actual validation errors
+        if (result.detail && Array.isArray(result.detail)) {
+          const errors = result.detail.map(err => `${err.loc?.join('.')}: ${err.msg}`).join('\n');
+          alert('Validation errors:\n' + errors);
+        } else {
+          alert('Error creating customer: ' + JSON.stringify(result));
+        }
       }
     } catch (err) {
-      alert('Failed to create customer');
+      console.error('Submit error:', err);
+      alert('Failed to create customer: ' + err.message);
     }
   };
 
@@ -120,25 +167,30 @@ function App() {
             <div className="login-section">
               <div className="login-card">
                 <h2>Employee Portal Access</h2>
-              <form onSubmit={handleLogin} className="login-form">
-  <div className="form-group">
-    <label>Email Address</label>
-    <input 
-      type="email" 
-      defaultValue="admin@company.com"
-      placeholder="Enter email address"
-    />
-  </div>
-  <div className="form-group">
-    <label>Password</label>
-    <input 
-      type="password" 
-      defaultValue="admin123"
-      placeholder="Enter password"
-    />
-  </div>
-  <button type="submit" className="btn-primary">Sign In</button>
-</form>
+                <form onSubmit={handleLogin} className="login-form">
+                  <div className="form-group">
+                    <label>Email Address</label>
+                    <input 
+                      type="email" 
+                      value={loginForm.email}
+                      onChange={(e) => setLoginForm({...loginForm, email: e.target.value})}
+                      placeholder="Enter email address"
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Password</label>
+                    <input 
+                      type="password" 
+                      value={loginForm.password}
+                      onChange={(e) => setLoginForm({...loginForm, password: e.target.value})}
+                      placeholder="Enter password"
+                      required
+                    />
+                  </div>
+                  <button type="submit" className="btn-primary">Sign In</button>
+                </form>
+                
                 <div className="system-status">
                   <span className="status-label">System Status:</span>
                   {systemStatus ? (
@@ -200,7 +252,17 @@ function App() {
                   </div>
                 )}
               </div>
-              <span className="user-info">admin@company.com</span>
+              <span className="user-info">{loginForm.email}</span>
+              <button 
+                onClick={() => {
+                  setIsLoggedIn(false);
+                  setToken(null);
+                  setCustomers([]);
+                }}
+                className="btn-secondary"
+              >
+                Logout
+              </button>
             </div>
           </div>
         </div>
@@ -238,14 +300,18 @@ function App() {
                 <div className="section">
                   <h3>Recent Customers</h3>
                   <div className="customer-list">
-                    {customers.slice(-3).map(customer => (
-                      <div key={customer.id} className="customer-item">
-                        <div className="customer-info">
-                          <span className="customer-name">{customer.legal_name}</span>
-                          <span className="customer-status">{customer.status}</span>
+                    {customers.length > 0 ? (
+                      customers.slice(-3).map(customer => (
+                        <div key={customer.id} className="customer-item">
+                          <div className="customer-info">
+                            <span className="customer-name">{customer.legal_name}</span>
+                            <span className="customer-status">{customer.status}</span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))
+                    ) : (
+                      <p>No customers available</p>
+                    )}
                   </div>
                 </div>
 
@@ -316,6 +382,18 @@ function App() {
                         />
                       </div>
                       <div className="form-group">
+                        <label>Email Domain</label>
+                        <input
+                          type="text"
+                          placeholder="example.com"
+                          value={newCustomer.email_domains[0] || ''}
+                          onChange={(e) => setNewCustomer({...newCustomer, email_domains: [e.target.value]})}
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-group">
                         <label>Primary Contact Email</label>
                         <input
                           type="email"
@@ -337,13 +415,19 @@ function App() {
                       <span>Code</span>
                       <span>Status</span>
                     </div>
-                    {customers.map(customer => (
-                      <div key={customer.id} className="table-row">
-                        <span className="company-name">{customer.legal_name}</span>
-                        <span className="company-code">{customer.id}</span>
-                        <span className="company-status">{customer.status}</span>
+                    {customers.length > 0 ? (
+                      customers.map(customer => (
+                        <div key={customer.id} className="table-row">
+                          <span className="company-name">{customer.legal_name}</span>
+                          <span className="company-code">{customer.id}</span>
+                          <span className="company-status">{customer.status}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="table-row">
+                        <span>No customers found</span>
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
               </div>
