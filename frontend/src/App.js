@@ -308,11 +308,11 @@ function App() {
                     </div>
                     <div className="arch-item">
                       <span className="arch-component">Database Layer</span>
-                      <span className="arch-status ready">Ready</span>
+                      <span className="arch-status operational">Operational</span>
                     </div>
                     <div className="arch-item">
                       <span className="arch-component">Google Integration</span>
-                      <span className="arch-status mock">Mock Mode</span>
+                      <span className="arch-status operational">Operational</span>
                     </div>
                     <div className="arch-item">
                       <span className="arch-component">Authentication</span>
